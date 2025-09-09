@@ -6,4 +6,4 @@ strain rates and Analysed load–displacement curves to characterize indentation
 Modeled crystal and irradiation-induced defects to assess their impact on mechanical response.
 Derived insights into defect-driven changes in tungsten deformation mechanisms.
 Maintained a streamlined workflow integrating defect modeling with mechanical testing simulations.
-** Still some unavoidable errors have occured- The load value is much below the predicted data- working on to provide a corrected code
+** Still some unavoidable errors have occured- The load value is much below the predicted data, although the nature of the load displacement curve is precise- working on to provide a corrected code
