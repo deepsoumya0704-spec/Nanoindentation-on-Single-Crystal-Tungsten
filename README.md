@@ -1,4 +1,4 @@
-Molecular Dynamics Simulation on Pure and Defect-induced Single Crystalline Tungsten –
+**Molecular Dynamics Simulation on Pure and Defect-induced Single Crystalline Tungsten –**
 
 => Conducted MD simulations of nanoindentation in tungsten single crystals using LAMMPS.
 
@@ -12,4 +12,4 @@ Molecular Dynamics Simulation on Pure and Defect-induced Single Crystalline Tung
 
 => Maintained a streamlined workflow integrating defect modeling with mechanical testing simulations.
 
-** Still some unavoidable errors have occured- The load value is much below the predicted data, although the nature of the load displacement curve is precise- working on to provide a corrected code
+_** Still some unavoidable errors have occured- The load value is much below the predicted data, although the nature of the load displacement curve is precise- working on to provide a corrected code_
