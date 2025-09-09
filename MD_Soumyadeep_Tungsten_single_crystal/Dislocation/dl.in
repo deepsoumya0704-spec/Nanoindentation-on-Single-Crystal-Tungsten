@@ -1,0 +1,195 @@
+clear
+log nanoindentation_dloop.log
+units metal
+dimension 3
+boundary p p f
+atom_style atomic
+
+# Tungsten parameters
+variable lattice_param equal 3.165    # W BCC lattice
+variable box_x equal 64               # X dimension (unit cells)
+variable box_y equal 64               # Y dimension (unit cells)
+variable box_z equal 47               # Z dimension (unit cells)
+variable indent_radius equal 9.8      # Indenter radius (Å)
+variable force_constant equal 0.5     # eV/Å²
+variable indent_velocity equal 0.10  # Å/ps
+variable indent_velocity_u equal 0.10 # Å/ps
+variable max_indent equal 30.0        # Max penetration depth (Å)
+variable temperature equal 10.0
+variable timestep_val equal 0.002     # 2 fs timestep
+
+# Create W single crystal
+lattice bcc ${lattice_param} orient x 1 0 0 orient y 0 1 0 orient z 0 0 1
+region simbox block 0 ${box_x} 0 ${box_y} 0 ${box_z}
+create_box 1 simbox
+create_atoms 1 box
+
+# Atomic properties
+mass 1 183.84
+
+# EAM potential for W
+pair_style eam/alloy
+pair_coeff * * potential-WHHe-EAM1.eam.alloy W
+
+# ------------------ Dislocation Creation ------------------
+print "Inserting three interstitial dislocation loops (Banisalman et al. 2022)"
+variable loop_radius equal "5 / v_lattice_param"   
+
+# dislocation1
+variable loop1_x equal "42.0 / v_lattice_param"
+variable loop1_y equal "42.0 / v_lattice_param"
+variable loop1_z equal "128.0 / v_lattice_param"
+variable bx1 equal "v_lattice_param"
+variable by1 equal "0.0"
+variable bz1 equal "0.0"
+variable loop1_zlo equal "v_loop1_z - 0.5"
+variable loop1_zhi equal "v_loop1_z + 0.5"
+region loop1_region cylinder z ${loop1_x} ${loop1_y} ${loop_radius} ${loop1_zlo} ${loop1_zhi} units lattice
+group loop1_atoms region loop1_region
+
+# dislocation2
+variable loop2_x equal "76.0 / v_lattice_param"
+variable loop2_y equal "76.0 / v_lattice_param"
+variable loop2_z equal "134.0 / v_lattice_param"
+variable bx2 equal "v_lattice_param"
+variable by2 equal "0.0"
+variable bz2 equal "0.0"
+variable loop2_zlo equal "v_loop2_z - 0.5"
+variable loop2_zhi equal "v_loop2_z + 0.5"
+region loop2_region cylinder z ${loop2_x} ${loop2_y} ${loop_radius} ${loop2_zlo} ${loop2_zhi} units lattice
+group loop2_atoms region loop2_region
+
+# dislocation3
+variable loop3_x equal "110.0 / v_lattice_param"
+variable loop3_y equal "110.0 / v_lattice_param"
+variable loop3_z equal "128.0 / v_lattice_param"
+variable bx3 equal "v_lattice_param"
+variable by3 equal "0.0"
+variable bz3 equal "0.0"
+variable loop3_zlo equal "v_loop3_z - 0.5"
+variable loop3_zhi equal "v_loop3_z + 0.5"
+region loop3_region cylinder z ${loop3_x} ${loop3_y} ${loop_radius} ${loop3_zlo} ${loop3_zhi} units lattice
+group loop3_atoms region loop3_region
+
+# Displace loops (FIXED units to lattice)
+displace_atoms loop1_atoms move ${bx1} ${by1} ${bz1} units lattice
+displace_atoms loop2_atoms move ${bx2} ${by2} ${bz2} units lattice
+displace_atoms loop3_atoms move ${bx3} ${by3} ${bz3} units lattice
+
+print "Energy minimization after disclocation creation(1)------------------------------------------------------------------"
+minimize 1.0e-9 1.0e-11 5000 50000
+
+# define heights
+variable fix_height     equal 4.0
+variable slab_thickness equal 3.0
+variable thermo_height  equal "v_fix_height + v_slab_thickness"
+
+# regions and groups
+region bottom_fix    block INF INF INF INF 0          ${fix_height}
+region thermo_region block INF INF INF INF ${fix_height} ${thermo_height}
+region mobile_region block INF INF INF INF ${thermo_height} INF
+group bottom  region bottom_fix
+group thermo region thermo_region
+group mobile region mobile_region
+
+# Reflective walls to prevent atoms from escaping in z-direction
+fix wall_bottom all wall/reflect zlo EDGE
+fix wall_top all wall/reflect zhi EDGE
+
+# Time integration
+timestep ${timestep_val}
+
+# ------------------------------------------------------------------------------
+#  Compute per-atom potential energy
+# ------------------------------------------------------------------------------
+
+
+#  Dump settings (per-atom data)
+# ------------------------------------------------------------------------------
+
+dump trajectory all custom 300 nanoindent_dloop.dump id type x y z vx vy vz fx fy fz
+dump_modify trajectory first yes
+
+# Energy minimization(2)-----------------------------------------------------------------------------------
+minimize 1.0e-9 1.0e-11 5000 50000
+
+# Thermal equilibration
+velocity all create ${temperature} 12345 mom yes rot no
+fix 1 thermo nvt temp ${temperature} ${temperature} $(50*dt)
+thermo 100
+thermo_style custom step temp pe ke etotal press vol
+run 2000
+unfix 1
+
+fix 2 bottom setforce 0.0 0.0 0.0
+# Energy minimization(3)------------------------------------------------------------------------------------
+minimize 1.0e-9 1.0e-11 5000 50000
+
+# Add NVE integration for mobile group
+fix integrator mobile nve
+
+# Indenter setup
+variable x_center equal 32.0
+variable y_center equal 32.0
+variable z_surface equal $(zhi)
+variable z_indent_start equal $(v_z_surface + 35.0)
+variable step0 equal step
+variable z_indent equal "v_z_indent_start - v_indent_velocity * time"
+
+# Thermostat and forces
+fix fix_bottom bottom setforce 0.0 0.0 0.0
+fix thermostat thermo langevin ${temperature} ${temperature} $(50*dt) 48279
+
+fix indenter mobile indent ${force_constant} sphere ${x_center} ${y_center} v_z_indent ${indent_radius}
+# Output settings
+thermo 200
+thermo_style custom step temp pe ke etotal press v_z_indent f_indenter
+
+# ------------------------ Loading --------------------------
+print "Loading phase........................................................................................."
+
+variable loading_steps equal ${max_indent}/${indent_velocity}/${timestep_val}
+run ${loading_steps}
+
+# ------------------------ Holding --------------------------
+print "Holding phase.........................................................................................."
+unfix indenter
+variable z_hold equal $(v_z_indent)
+fix indenter_hold mobile indent ${force_constant} sphere ${x_center} ${y_center} v_z_hold ${indent_radius}
+
+thermo_style custom step temp pe ke etotal press v_z_hold f_indenter_hold
+run 20000
+
+# ------------------------ Unloading --------------------------
+print "Unloading phase....................................................................................."
+unfix indenter_hold
+
+# Capture final holding position and current step
+variable z_hold_final equal $(v_z_hold)
+variable step_unload_start equal $(step)
+
+# Define unloading position - retract at specified velocity
+variable step_in_unload equal "(step - v_step_unload_start)"
+variable z_unload equal "v_z_hold_final + v_indent_velocity_u * v_step_in_unload * dt"
+
+# Apply unloading fix
+fix indenter_unload mobile indent ${force_constant} sphere ${x_center} ${y_center} v_z_unload ${indent_radius}
+
+# Update thermo output for unloading
+thermo_style custom step temp pe ke etotal press v_z_unload f_indenter_unload
+
+# Calculate unloading steps based on desired retraction distance
+variable unload_distance equal 40.0  # Slightly more than max_indent to ensure complete unloading
+variable unloading_steps equal $(v_unload_distance/v_indent_velocity_u/dt)
+
+# Run unloading
+run ${unloading_steps}
+
+# ------------------------ Final Relaxation --------------------------
+print "Final relaxation.........................................................................................."
+unfix indenter_unload
+thermo_style custom step temp pe ke etotal press
+run 1000
+
+undump trajectory
+print "-----------------------Nanoindentation completed---------------------"
